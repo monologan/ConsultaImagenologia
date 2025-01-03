@@ -1,10 +1,12 @@
 # Backend (main.py)
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 import pyodbc
 from fpdf import FPDF
 from pydantic import BaseModel
 from typing import List
+import os
 
 app = FastAPI()
 
@@ -105,11 +107,19 @@ async def generate_pdf(cedula: str):
             for key, value in record.items():
                 pdf.cell(200, 10, txt=f"{key}: {value}", ln=1, align='L')
         
+        # Crear directorio para PDFs si no existe
+        os.makedirs("pdfs", exist_ok=True)
+        
         # Guardar PDF
-        filename = f"reporte_{cedula}.pdf"
+        filename = f"pdfs/reporte_{cedula}.pdf"
         pdf.output(filename)
         
-        return {"filename": filename}
+        # Retornar el archivo PDF directamente
+        return FileResponse(
+            path=filename,
+            filename=f"reporte_{cedula}.pdf",
+            media_type="application/pdf"
+        )
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
