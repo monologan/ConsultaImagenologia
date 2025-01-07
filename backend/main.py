@@ -23,7 +23,7 @@ app.add_middleware(
 DB_CONNECTION = {
     'driver': '{SQL Server}',
     'server': '192.168.42.241',
-    'database': 'hospivisual',
+    'database': 'interlab',
     'uid': 'HRCV',
     'pwd': 'HRCV'
     #'trusted_connection': 'yes'
@@ -71,7 +71,7 @@ async def get_records(cedula: str):
         
         # Ajusta la consulta según tu vista
         query = """
-            SELECT arcid, regnombre, arcapellido1, arcsexo, factfechaing from paciente p WHERE arcid = ? 
+            SELECT nombreordenes, factnumero, numeroidentificacion, concat(primernombre , segundonombre, primerapellido, segundoapellido) as Nombre, nombreresultado FROM resultadolocal  WITH (NOLOCK) WHERE numeroidentificacion = ? 
         """
         cursor.execute(query, cedula)
         
