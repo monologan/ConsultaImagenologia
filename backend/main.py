@@ -1,7 +1,7 @@
 # Backend (main.py)
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 import pyodbc
 from fpdf import FPDF
 from pydantic import BaseModel
@@ -100,20 +100,59 @@ async def generate_pdf(cedula: str):
         # Crear PDF
         pdf = FPDF()
         pdf.add_page()
+        
+        # Configuración de la página
+        page_width = pdf.w
+        
+        # Agregar logo
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            logo_path = os.path.join(current_dir, 'static', 'logo.jpg')
+            
+            if os.path.exists(logo_path):
+                # Dimensiones y posicionamiento del logo
+                logo_width = 50  # ancho en mm
+                logo_height = 30  # altura en mm
+                x_position = (page_width - logo_width) / 8
+                
+                pdf.image(logo_path, x=x_position, y=10, w=logo_width, h=logo_height)
+                pdf.ln(25)  # Espacio después del logo
+            else:
+                print(f"Logo no encontrado en: {logo_path}")
+        except Exception as e:
+            print(f"Error al cargar el logo: {str(e)}")
+        
+        # Título del reporte
+        pdf.set_font("Arial", 'B', size=14)
+        pdf.cell(200, 10, txt="Reporte de Resultados", ln=1, align='C')
+        
         pdf.set_font("Arial", size=12)
+        pdf.cell(200, 10, txt=f"Cédula: {cedula}", ln=1, align='C')
+        pdf.ln(5)
         
-        # Agregar contenido al PDF
-        pdf.cell(200, 10, txt=f"Reporte para cédula: {cedula}", ln=1, align='C')
+        # Crear tabla
+        if records["data"]:
+            # Encabezados de la tabla
+            pdf.set_font("Arial", 'B', size=10)
+            headers = list(records["data"][0].keys())
+            col_width = page_width / len(headers)
+            
+            for header in headers:
+                pdf.cell(col_width, 10, header, 1, 0, 'C')
+            pdf.ln()
+            
+            # Datos de la tabla
+            pdf.set_font("Arial", size=8)
+            for record in records["data"]:
+                for value in record.values():
+                    value_str = str(value) if value is not None else ''
+                    pdf.cell(col_width, 10, value_str, 1, 0, 'C')
+                pdf.ln()
         
-        for record in records["data"]:
-            for key, value in record.items():
-                pdf.cell(200, 10, txt=f"{key}: {value}", ln=1, align='L')
         
         # En lugar de guardar en archivo, obtener el PDF en memoria
         pdf_content = pdf.output(dest='S').encode('latin-1')
         
-        # Retornar el contenido del PDF directamente desde memoria
-        from fastapi.responses import Response
         return Response(
             content=pdf_content,
             media_type="application/pdf",
@@ -123,4 +162,5 @@ async def generate_pdf(cedula: str):
         )
         
     except Exception as e:
+        print(f"Error generando PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
