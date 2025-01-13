@@ -10,6 +10,8 @@ import os
 
 app = FastAPI()
 
+############## python -m uvicorn main:app --reload ##################
+
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,
@@ -107,18 +109,17 @@ async def generate_pdf(cedula: str):
             for key, value in record.items():
                 pdf.cell(200, 10, txt=f"{key}: {value}", ln=1, align='L')
         
-        # Crear directorio para PDFs si no existe
-        os.makedirs("pdfs", exist_ok=True)
+        # En lugar de guardar en archivo, obtener el PDF en memoria
+        pdf_content = pdf.output(dest='S').encode('latin-1')
         
-        # Guardar PDF
-        filename = f"pdfs/reporte_{cedula}.pdf"
-        pdf.output(filename)
-        
-        # Retornar el archivo PDF directamente
-        return FileResponse(
-            path=filename,
-            filename=f"reporte_{cedula}.pdf",
-            media_type="application/pdf"
+        # Retornar el contenido del PDF directamente desde memoria
+        from fastapi.responses import Response
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=reporte_{cedula}.pdf"
+            }
         )
         
     except Exception as e:
