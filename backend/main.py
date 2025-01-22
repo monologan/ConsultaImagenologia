@@ -9,9 +9,6 @@ from typing import List
 import os
 
 app = FastAPI()
-
-############## python -m uvicorn main:app --reload ##################
-
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,
@@ -20,25 +17,27 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # Configuración de la conexión a SQL Server
 DB_CONNECTION = {
     'driver': '{SQL Server}',
     'server': '192.168.42.241',
-    'database': 'interlab',
+    'database': 'HOSPIVISUAL',
     'uid': 'HRCV',
     'pwd': 'HRCV'
     #'trusted_connection': 'yes'
 }
 
-#############test conexion
+# Test conexion
 
 @app.get("/test-connection")
 async def test_connection():
+    conn = None
+    cursor = None
     try:
+        # Intentar establecer la conexión
         conn = pyodbc.connect(**DB_CONNECTION)
         cursor = conn.cursor()
-        cursor.execute("SELECT 1")  # Simple query to test connection
+        cursor.execute("SELECT @@version")  # Consulta más informativa que retorna la versión de SQL Server
         result = cursor.fetchone()
         
         return {
@@ -46,36 +45,63 @@ async def test_connection():
             "message": "Conexión establecida correctamente",
             "details": {
                 "server": DB_CONNECTION['server'],
-                "database": DB_CONNECTION['database']
+                "database": DB_CONNECTION['database'],
+                "sql_version": result[0] if result else None
             }
         }
     except pyodbc.Error as e:
+        # Manejo más específico del error
+        error_message = str(e)
+        if "Login failed" in error_message:
+            error_detail = "Error de autenticación: Verifique las credenciales (uid/pwd)"
+        elif "Cannot connect to server" in error_message:
+            error_detail = "No se puede conectar al servidor: Verifique la dirección IP y que el servidor esté activo"
+        else:
+            error_detail = error_message
+            
         return {
             "status": "error",
             "message": "Error de conexión",
-            "error": str(e)
+            "error": error_detail
         }
     finally:
-        if 'cursor' in locals():
+        if cursor:
             cursor.close()
-        if 'conn' in locals():
+        if conn:
             conn.close()
 
 class Record(BaseModel):
     cedula: str
+    
     # Agregar aquí los demás campos de tu vista
 
-@app.get("/api/records/{cedula}")
-async def get_records(cedula: str):
+@app.get("/api/records")
+async def get_records(cedula: str = None, factura: str = None):
     try:
+        if not cedula and not factura:
+            raise HTTPException(status_code=400, detail="Se requiere cédula o número de factura")
+        elif not cedula:
+             raise HTTPException(status_code=400, detail="Se requiere cédula")
+        elif not factura:
+            raise HTTPException(status_code=400, detail="Se requiere cédula")
         conn = pyodbc.connect(**DB_CONNECTION)
         cursor = conn.cursor()
-        
-        # Ajusta la consulta según tu vista
-        query = """
-            SELECT nombreordenes, factnumero, numeroidentificacion, concat(primernombre , segundonombre, primerapellido, segundoapellido) as Nombre, nombreresultado FROM resultadolocal  WITH (NOLOCK) WHERE numeroidentificacion = ? 
-        """
-        cursor.execute(query, cedula)
+              
+        query = '''
+        SELECT  
+            
+            FORMAT(FECHATOMAMUESTRA, 'yyyy-MM-dd') as 'Fecha Toma', NOMBREordenes as 'Tipo Examen'
+        FROM INTERLAB.dbo.resultadolocal rl WITH (NOLOCK)
+            INNER JOIN HOSPIVISUAL.dbo.factura f WITH (NOLOCK) 
+                ON rl.FACTNUMERO = f.factnumero
+        WHERE 
+            (rl.numeroidentificacion = ? OR ? IS NULL)
+            AND (f.factnumero = ? OR ? IS NULL)
+
+        group by FECHATOMAMUESTRA, NOMBREordenes
+        '''
+
+        cursor.execute(query, cedula, cedula, factura, factura)
         
         columns = [column[0] for column in cursor.description]
         results = []
@@ -113,7 +139,7 @@ async def generate_pdf(cedula: str):
                 # Dimensiones y posicionamiento del logo
                 logo_width = 50  # ancho en mm
                 logo_height = 30  # altura en mm
-                x_position = (page_width - logo_width) / 8
+                x_position = (page_width - logo_width) / 2
                 
                 pdf.image(logo_path, x=x_position, y=10, w=logo_width, h=logo_height)
                 pdf.ln(25)  # Espacio después del logo
@@ -121,14 +147,14 @@ async def generate_pdf(cedula: str):
                 print(f"Logo no encontrado en: {logo_path}")
         except Exception as e:
             print(f"Error al cargar el logo: {str(e)}")
-        
+         
         # Título del reporte
         pdf.set_font("Arial", 'B', size=14)
         pdf.cell(200, 10, txt="Reporte de Resultados", ln=1, align='C')
         
         pdf.set_font("Arial", size=12)
         pdf.cell(200, 10, txt=f"Cédula: {cedula}", ln=1, align='C')
-        pdf.ln(5)
+        pdf.ln(5) 
         
         # Crear tabla
         if records["data"]:
