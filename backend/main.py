@@ -81,7 +81,7 @@ async def get_records(cedula: str = None, factura: str = None):
         cursor = conn.cursor()
               
         query = '''SELECT  FORMAT(FECHATOMAMUESTRA, 'yyyy-MM-dd') as 'Fecha Toma', NOMBREordenes as 'Tipo Examen',
-            concat(primernombre,segundonombre,segundoapellido,primerapellido) as Nombre
+            concat(primernombre+' ', segundonombre+' ', primerapellido+' ', segundoapellido) as Nombre
         FROM INTERLAB.dbo.resultadolocal rl WITH (NOLOCK)
             INNER JOIN HOSPIVISUAL.dbo.factura f WITH (NOLOCK) 
                 ON rl.FACTNUMERO = f.factnumero
@@ -89,7 +89,7 @@ async def get_records(cedula: str = None, factura: str = None):
             (rl.numeroidentificacion = ? OR ? IS NULL)
             AND (f.factnumero = ? OR ? IS NULL)
 
-        group by FECHATOMAMUESTRA, NOMBREordenes, concat(primernombre,segundonombre,segundoapellido,primerapellido)
+        group by FECHATOMAMUESTRA, NOMBREordenes, concat(primernombre+' ', segundonombre+' ', primerapellido+' ', segundoapellido)
         '''
 
         cursor.execute(query, cedula, cedula, factura, factura)
