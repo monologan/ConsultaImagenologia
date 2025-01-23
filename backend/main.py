@@ -26,9 +26,7 @@ DB_CONNECTION = {
     'pwd': 'HRCV'
     #'trusted_connection': 'yes'
 }
-
 # Test conexion
-
 @app.get("/test-connection")
 async def test_connection():
     conn = None
@@ -71,26 +69,19 @@ async def test_connection():
             conn.close()
 
 class Record(BaseModel):
-    cedula: str
-    
+    cedula: str    
     # Agregar aquí los demás campos de tu vista
-
 @app.get("/api/records")
 async def get_records(cedula: str = None, factura: str = None):
     try:
         if not cedula and not factura:
             raise HTTPException(status_code=400, detail="Se requiere cédula o número de factura")
-        elif not cedula:
-             raise HTTPException(status_code=400, detail="Se requiere cédula")
-        elif not factura:
-            raise HTTPException(status_code=400, detail="Se requiere cédula")
+        
         conn = pyodbc.connect(**DB_CONNECTION)
         cursor = conn.cursor()
               
-        query = '''
-        SELECT  
-            
-            FORMAT(FECHATOMAMUESTRA, 'yyyy-MM-dd') as 'Fecha Toma', NOMBREordenes as 'Tipo Examen'
+        query = '''SELECT  FORMAT(FECHATOMAMUESTRA, 'yyyy-MM-dd') as 'Fecha Toma', NOMBREordenes as 'Tipo Examen',
+            concat(primernombre,segundonombre,segundoapellido,primerapellido) as Nombre
         FROM INTERLAB.dbo.resultadolocal rl WITH (NOLOCK)
             INNER JOIN HOSPIVISUAL.dbo.factura f WITH (NOLOCK) 
                 ON rl.FACTNUMERO = f.factnumero
@@ -98,7 +89,7 @@ async def get_records(cedula: str = None, factura: str = None):
             (rl.numeroidentificacion = ? OR ? IS NULL)
             AND (f.factnumero = ? OR ? IS NULL)
 
-        group by FECHATOMAMUESTRA, NOMBREordenes
+        group by FECHATOMAMUESTRA, NOMBREordenes, concat(primernombre,segundonombre,segundoapellido,primerapellido)
         '''
 
         cursor.execute(query, cedula, cedula, factura, factura)
@@ -117,13 +108,19 @@ async def get_records(cedula: str = None, factura: str = None):
         cursor.close()
         conn.close()
 
-@app.get("/api/pdf/{cedula}")
-async def generate_pdf(cedula: str):
+class PDFRequest(BaseModel):
+    selectedIndices: List[int]
+
+@app.post("/api/pdf/{cedula}")
+async def generate_pdf(cedula: str, request: PDFRequest):
     try:
         # Obtener los datos
         records = await get_records(cedula)
         
-        # Crear PDF
+        # Filter records based on selectedIndices
+        filtered_records = {"data": [records["data"][i] for i in request.selectedIndices]}
+        
+        # Create PDF using filtered records
         pdf = FPDF()
         pdf.add_page()
         
@@ -157,10 +154,10 @@ async def generate_pdf(cedula: str):
         pdf.ln(5) 
         
         # Crear tabla
-        if records["data"]:
+        if filtered_records["data"]:
             # Encabezados de la tabla
             pdf.set_font("Arial", 'B', size=10)
-            headers = list(records["data"][0].keys())
+            headers = list(filtered_records["data"][0].keys())
             col_width = page_width / len(headers)
             
             for header in headers:
@@ -169,7 +166,7 @@ async def generate_pdf(cedula: str):
             
             # Datos de la tabla
             pdf.set_font("Arial", size=8)
-            for record in records["data"]:
+            for record in filtered_records["data"]:
                 for value in record.values():
                     value_str = str(value) if value is not None else ''
                     pdf.cell(col_width, 10, value_str, 1, 0, 'C')
