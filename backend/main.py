@@ -72,27 +72,30 @@ class Record(BaseModel):
     cedula: str    
     # Agregar aquí los demás campos de tu vista
 @app.get("/api/records")
-async def get_records(cedula: str = None, factura: str = None):
+async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None):
     try:
-        if not cedula and not factura:
-            raise HTTPException(status_code=400, detail="Se requiere cédula o número de factura")
+        if not any([cedula, fechanacimiento, tipocodigo]):
+            raise HTTPException(
+                status_code=400, 
+                detail="Se requiere al menos uno de los siguientes campos: cédula, fecha de nacimiento o tipo de código"
+            )
         
         conn = pyodbc.connect(**DB_CONNECTION)
         cursor = conn.cursor()
               
-        query = '''SELECT  FORMAT(FECHATOMAMUESTRA, 'yyyy-MM-dd') as 'Fecha Toma', NOMBREordenes as 'Tipo Examen',
-            concat(primernombre+' ', segundonombre+' ', primerapellido+' ', segundoapellido) as Nombre
-        FROM INTERLAB.dbo.resultadolocal rl WITH (NOLOCK)
-            INNER JOIN HOSPIVISUAL.dbo.factura f WITH (NOLOCK) 
-                ON rl.FACTNUMERO = f.factnumero
-        WHERE 
-            (rl.numeroidentificacion = ? OR ? IS NULL)
-            AND (f.factnumero = ? OR ? IS NULL)
-
-        group by FECHATOMAMUESTRA, NOMBREordenes, concat(primernombre+' ', segundonombre+' ', primerapellido+' ', segundoapellido)
+        query = '''
+        SELECT
+            CONCAT(arcnombre1,+' '+ arcnombre2,+' '+ arcapellido1,+' '+ arcapellido2 ) as Nombre,
+            arcid as Documento, CONVERT(varchar, arcfechanaci, 103) fecha
+        FROM
+            archivo a WITH (NOLOCK)
+        where
+            (arcid = ? OR ? IS NULL)
+            AND (tipcodigo = ? OR ? IS NULL) AND (YEAR(arcfechanaci) = ? OR ? IS NULL)
+    
         '''
 
-        cursor.execute(query, cedula, cedula, factura, factura)
+        cursor.execute(query, cedula, cedula, tipocodigo, tipocodigo, fechanacimiento, fechanacimiento)
         
         columns = [column[0] for column in cursor.description]
         results = []
@@ -116,64 +119,85 @@ async def generate_pdf(cedula: str, request: PDFRequest):
     try:
         # Obtener los datos
         records = await get_records(cedula)
-        
-        # Filter records based on selectedIndices
         filtered_records = {"data": [records["data"][i] for i in request.selectedIndices]}
         
-        # Create PDF using filtered records
+        # Create PDF
         pdf = FPDF()
         pdf.add_page()
-        
-        # Configuración de la página
         page_width = pdf.w
         
-        # Agregar logo
+        # Add logo
         try:
             current_dir = os.path.dirname(os.path.abspath(__file__))
             logo_path = os.path.join(current_dir, 'static', 'logo.jpg')
             
             if os.path.exists(logo_path):
-                # Dimensiones y posicionamiento del logo
-                logo_width = 50  # ancho en mm
-                logo_height = 30  # altura en mm
+                logo_width = 50
+                logo_height = 30
                 x_position = (page_width - logo_width) / 2
-                
                 pdf.image(logo_path, x=x_position, y=10, w=logo_width, h=logo_height)
-                pdf.ln(25)  # Espacio después del logo
+                pdf.ln(35)
             else:
                 print(f"Logo no encontrado en: {logo_path}")
         except Exception as e:
             print(f"Error al cargar el logo: {str(e)}")
-         
-        # Título del reporte
-        pdf.set_font("Arial", 'B', size=14)
-        pdf.cell(200, 10, txt="Reporte de Resultados", ln=1, align='C')
-        
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt=f"Cédula: {cedula}", ln=1, align='C')
-        pdf.ln(5) 
-        
-        # Crear tabla
+
+        # Header information
         if filtered_records["data"]:
-            # Encabezados de la tabla
+            first_record = filtered_records["data"][0]
+            pdf.set_font("Arial", 'B', size=12)
+            pdf.cell(0, 10, "RESULTADOS DE LABORATORIO", ln=True, align='C')
+            pdf.ln(5)
+
+            # Patient information
+            pdf.set_font("Arial", size=10)
+            pdf.cell(40, 8, "Documento:", 0, 0)
+            pdf.cell(60, 8, cedula, 0, 0)
+            pdf.cell(40, 8, "fechanacimiento:", 0, 0)
+            pdf.cell(50, 8, str(first_record.get("FACTNUMERO", "")), 0, 1)
+
+            nombre_completo = (f"{first_record.get('primernombre', '')} {first_record.get('segundonombre', '')} "
+                             f"{first_record.get('primerapellido', '')} {first_record.get('segundoapellido', '')}").strip()
+            pdf.cell(40, 8, "Paciente:", 0, 0)
+            pdf.cell(150, 8, nombre_completo, 0, 1)
+
+            pdf.cell(40, 8, "Fecha Toma:", 0, 0)
+            pdf.cell(60, 8, str(first_record.get("fechatomamuestra", "")), 0, 0)
+            pdf.cell(40, 8, "Hora Toma:", 0, 0)
+            pdf.cell(50, 8, str(first_record.get("horatomamuestra", "")), 0, 1)
+            pdf.ln(5)
+
+            # Results table
             pdf.set_font("Arial", 'B', size=10)
-            headers = list(filtered_records["data"][0].keys())
-            col_width = page_width / len(headers)
-            
-            for header in headers:
-                pdf.cell(col_width, 10, header, 1, 0, 'C')
+            # Define specific columns we want to show
+            columns = ["nombreexamen", "resultado", "unidades", "VALORREFERENCIAMIN", "VALORREFERENCIAMAX"]
+            headers = ["Examen", "Resultado", "Unidades", "Valor Min", "Valor Max"]
+            col_widths = [70, 40, 30, 25, 25]  # Total should be close to page_width (190-200)
+
+            # Table headers
+            for header, width in zip(headers, col_widths):
+                pdf.cell(width, 10, header, 1, 0, 'C')
             pdf.ln()
-            
-            # Datos de la tabla
-            pdf.set_font("Arial", size=8)
+
+            # Table content
+            pdf.set_font("Arial", size=9)
             for record in filtered_records["data"]:
-                for value in record.values():
-                    value_str = str(value) if value is not None else ''
-                    pdf.cell(col_width, 10, value_str, 1, 0, 'C')
+                for col, width in zip(columns, col_widths):
+                    value = str(record.get(col, "")) if record.get(col) is not None else ""
+                    pdf.cell(width, 8, value, 1, 0, 'L')
                 pdf.ln()
-        
-        
-        # En lugar de guardar en archivo, obtener el PDF en memoria
+
+            # Add observations if any
+            pdf.ln(5)
+            pdf.set_font("Arial", 'B', size=10)
+            pdf.cell(0, 8, "Observaciones:", 0, 1)
+            pdf.set_font("Arial", size=9)
+            for record in filtered_records["data"]:
+                obs = record.get("labobservaciones", "")
+                if obs and obs != "null":
+                    pdf.multi_cell(0, 5, obs)
+
+        # Get PDF content
         pdf_content = pdf.output(dest='S').encode('latin-1')
         
         return Response(
