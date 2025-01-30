@@ -26,6 +26,14 @@ DB_CONNECTION = {
     'pwd': 'HRCV'
     #'trusted_connection': 'yes'
 }
+# Additional DB connection for LAB system
+DB_CONNECTION_RX = {
+    'driver': '{SQL Server}',
+    'server': '192.168.42.162\MSSQLENTERPRISE',
+    'database': 'interlab',
+    'uid': 'interlab',
+    'pwd': 'Interlab2019'
+}
 # Test conexion
 @app.get("/test-connection")
 async def test_connection():
@@ -67,7 +75,6 @@ async def test_connection():
             cursor.close()
         if conn:
             conn.close()
-
 class Record(BaseModel):
     cedula: str    
     # Agregar aquí los demás campos de tu vista
@@ -110,10 +117,52 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
     finally:
         cursor.close()
         conn.close()
+@app.get("/api/rx-records")
+async def get_rx_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None):
+    try:
+        if not any([cedula, fechanacimiento, tipocodigo]):
+            raise HTTPException(
+                status_code=400, 
+                detail="Se requiere al menos uno de los siguientes campos: cédula, fecha de nacimiento o tipo de código"
+            )
+        
+        conn = pyodbc.connect(**DB_CONNECTION_RX)
+        cursor = conn.cursor()
+              
+        query = '''
+        SELECT
+            CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
+            SECCION as Descripcion,
+            'LAB' AS Modalidad
+        FROM
+            ORDENES WITH (NOLOCK)
+            INNER JOIN RESULTADOS WITH (NOLOCK) ON RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO 
+        WHERE
+            NUMEROIDENTIFICACION = ?
+        GROUP BY
+            SECCION,
+            FECHATOMAMUESTRA
+        ORDER BY
+            FECHATOMAMUESTRA DESC
+        '''
 
+        cursor.execute(query, cedula)
+        
+        columns = [column[0] for column in cursor.description]
+        results = []
+        
+        for row in cursor.fetchall():
+            results.append(dict(zip(columns, row)))
+            
+        return {"data": results}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        cursor.close()
+        conn.close()
 class PDFRequest(BaseModel):
     selectedIndices: List[int]
-
 @app.post("/api/pdf/{cedula}")
 async def generate_pdf(cedula: str, request: PDFRequest):
     try:
