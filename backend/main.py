@@ -54,6 +54,7 @@ async def test_connection():
                 "database": DB_CONNECTION['database'],
                 "sql_version": result[0] if result else None
             }
+
         }
     except pyodbc.Error as e:
         # Manejo más específico del error
@@ -260,3 +261,130 @@ async def generate_pdf(cedula: str, request: PDFRequest):
     except Exception as e:
         print(f"Error generando PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/rx-pdf/{cedula}")
+async def generate_rx_pdf(cedula: str, request: PDFRequest):
+    try:
+        conn = pyodbc.connect(**DB_CONNECTION_RX)
+        cursor = conn.cursor()
+        
+        query = '''
+        SELECT
+            CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
+            SECCION as Descripcion,
+            NUMEROIDENTIFICACION as Documento,
+            RESULTADOS.NOMBREEXAMEN as Examen,
+            RESULTADOS.CONSECUTIVO as Consecutivo,
+            RESULTADOS.resultado as Resultado,
+            RESULTADOS.unidades as Unidad,
+            RESULTADOS.VALORREFERENCIAMIN as ValorMin,
+            RESULTADOS.VALORREFERENCIAMAX as ValorMax,
+            RESULTADOS.fechavalida as FechaValidacion,
+            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as NombreCompleto
+        FROM
+            ORDENES WITH (NOLOCK)
+            INNER JOIN RESULTADOS WITH (NOLOCK) ON RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO 
+        WHERE
+            NUMEROIDENTIFICACION = ?
+        order by RESULTADOS.NOMBREEXAMEN
+         
+        '''
+        
+        cursor.execute(query, cedula)
+        results = cursor.fetchall()
+        
+        # Group results by Consecutivo
+        grouped_results = {}
+        for record in results:
+            if record.Consecutivo not in grouped_results:
+                grouped_results[record.Consecutivo] = []
+            grouped_results[record.Consecutivo].append(record)
+
+        # Create PDF
+        pdf = FPDF()
+        pdf.add_page()
+        page_width = pdf.w
+        
+        # Add logo
+        try:
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            logo_path = os.path.join(current_dir, 'static', 'logo.jpg')
+            
+            if os.path.exists(logo_path):
+                logo_width = 50
+                logo_height = 30
+                x_position = (page_width - logo_width) / 2
+                pdf.image(logo_path, x=x_position, y=10, w=logo_width, h=logo_height)
+                pdf.ln(35)
+            else:
+                print(f"Logo no encontrado en: {logo_path}")
+        except Exception as e:
+            print(f"Error al cargar el logo: {str(e)}")
+
+        # Header
+        pdf.set_font("Arial", 'B', size=12)
+        pdf.cell(0, 10, "RESULTADOS DE LABORATORIO", ln=True, align='C')
+        pdf.ln(5)
+
+        if results:
+            first_record = results[0]
+            # Patient information
+            pdf.set_font("Arial", size=10)
+            pdf.cell(40, 8, "Documento:", 0, 0)
+            pdf.cell(60, 8, str(first_record.Documento), 0, 1)
+            pdf.cell(40, 8, "Paciente:", 0, 0)
+            pdf.cell(150, 8, str(first_record.NombreCompleto), 0, 1)
+            pdf.ln(5)
+
+            # Iterate through each group
+            for consecutivo, group in grouped_results.items():
+                # Add consecutivo header
+                pdf.set_font("Arial", 'B', size=10)
+                pdf.cell(0, 10, f"{consecutivo}", 0, 1, 'L')
+                # Get and print the exam name for this group
+                if group and hasattr(group[0], 'Examen'):
+                    pdf.set_font("Arial", 'B', size=10)
+                    pdf.cell(0, 10, f"{str(group[0].Examen)}", 0, 1, 'L')
+                pdf.ln(2)
+
+                # Table headers
+                pdf.set_font("Arial", 'B', size=10)
+                headers = ["Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
+                col_widths = [30, 20, 20, 20, 50]
+
+                for header, width in zip(headers, col_widths):
+                    pdf.cell(width, 10, header, 1, 0, 'C')
+                pdf.ln()
+
+                # Table content for this group
+                pdf.set_font("Arial", size=7)
+                for record in group:
+                    
+                    pdf.cell(30, 8, str(record.Resultado), 1, 0, 'L')
+                    pdf.cell(20, 8, str(record.Unidad), 1, 0, 'L')
+                    pdf.cell(20, 8, str(record.ValorMin), 1, 0, 'L')
+                    pdf.cell(20, 8, str(record.ValorMax), 1, 0, 'L')
+                    pdf.cell(50, 8, str(record.FechaValidacion), 1, 0, 'L')
+                    pdf.ln()
+                
+                pdf.ln(10)  # Add space between groups
+
+        # Get PDF content
+        pdf_content = pdf.output(dest='S').encode('latin-1')
+        
+        return Response(
+            content=pdf_content,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f"attachment; filename=reporte_rx_{cedula}.pdf"
+            }
+        )
+        
+    except Exception as e:
+        print(f"Error generando PDF de RX: {str(e)}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
