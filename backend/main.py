@@ -98,8 +98,8 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
         FROM
             archivo a WITH (NOLOCK)
         where
-            (arcid = ? OR ? IS NULL)
-            AND (tipcodigo = ? OR ? IS NULL) AND (YEAR(arcfechanaci) = ? OR ? IS NULL)
+            (arcid = ? or ? IS NULL)
+            AND (tipcodigo = ? or ? IS NULL) AND (YEAR(arcfechanaci) = ? or ? IS NULL)
     
         '''
 
@@ -270,23 +270,41 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
         
         query = '''
         SELECT
-            CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
-            SECCION as Descripcion,
-            NUMEROIDENTIFICACION as Documento,
-            RESULTADOS.NOMBREEXAMEN as Examen,
-            RESULTADOS.CONSECUTIVO as Consecutivo,
-            RESULTADOS.resultado as Resultado,
-            RESULTADOS.unidades as Unidad,
-            RESULTADOS.VALORREFERENCIAMIN as ValorMin,
-            RESULTADOS.VALORREFERENCIAMAX as ValorMax,
-            RESULTADOS.fechavalida as FechaValidacion,
-            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as NombreCompleto
-        FROM
-            ORDENES WITH (NOLOCK)
-            INNER JOIN RESULTADOS WITH (NOLOCK) ON RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO 
-        WHERE
-            NUMEROIDENTIFICACION = ?
-        order by RESULTADOS.NOMBREEXAMEN
+	CONVERT(varchar,
+	FECHATOMAMUESTRA,
+	103) as Fecha,
+	SECCION as Descripcion,
+	NUMEROIDENTIFICACION as Documento,
+	RESULTADOS.NOMBREEXAMEN as Examen,
+	RESULTADOS.CONSECUTIVO as Consecutivo,
+	RESULTADOS.resultado as Resultado,
+	RESULTADOS.unidades as Unidad,
+	RESULTADOS.VALORREFERENCIAMIN as ValorMin,
+	RESULTADOS.VALORREFERENCIAMAX as ValorMax,
+	RESULTADOS.fechavalida as FechaValidacion,
+	CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as NombreCompleto
+    
+FROM
+	ORDENES WITH (NOLOCK)
+INNER JOIN RESULTADOS WITH (NOLOCK) ON
+	RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
+WHERE
+	NUMEROIDENTIFICACION = ?
+group by
+	SECCION,
+	NUMEROIDENTIFICACION,
+	RESULTADOS.NOMBREEXAMEN,
+	RESULTADOS.CONSECUTIVO,
+	RESULTADOS.resultado,
+	RESULTADOS.unidades,
+	RESULTADOS.VALORREFERENCIAMIN,
+	RESULTADOS.VALORREFERENCIAMAX,
+	RESULTADOS.fechavalida,
+	FECHATOMAMUESTRA,
+	CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)
+    
+	
+order by RESULTADOS.NOMBREEXAMEN
          
         '''
         
@@ -345,26 +363,28 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
                 if group and hasattr(group[0], 'Examen'):
                     pdf.set_font("Arial", 'B', size=10)
                     pdf.cell(0, 10, f"{str(group[0].Examen)}", 0, 1, 'L')
+                
                 pdf.ln(2)
 
                 # Table headers
                 pdf.set_font("Arial", 'B', size=10)
-                headers = ["Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
-                col_widths = [30, 20, 20, 20, 50]
+                headers = ["Examen","Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
+                col_widths = [70, 20, 20, 20, 20, 30]
 
                 for header, width in zip(headers, col_widths):
                     pdf.cell(width, 10, header, 1, 0, 'C')
                 pdf.ln()
 
                 # Table content for this group
-                pdf.set_font("Arial", size=7)
+                pdf.set_font("Arial", size=6)
                 for record in group:
                     
-                    pdf.cell(30, 8, str(record.Resultado), 1, 0, 'L')
+                    pdf.cell(70, 8, str(record.Examen), 1, 0, 'L')
+                    pdf.cell(20, 8, str(record.Resultado), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.Unidad), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.ValorMin), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.ValorMax), 1, 0, 'L')
-                    pdf.cell(50, 8, str(record.FechaValidacion), 1, 0, 'L')
+                    pdf.cell(30, 8, str(record.FechaValidacion), 1, 0, 'L')
                     pdf.ln()
                 
                 pdf.ln(10)  # Add space between groups
