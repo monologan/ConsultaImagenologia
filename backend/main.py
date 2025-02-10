@@ -270,54 +270,53 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
         
         query = '''
         SELECT
-	CONVERT(varchar,
-	FECHATOMAMUESTRA,
-	103) as Fecha,
-	SECCION as Descripcion,
-	NUMEROIDENTIFICACION as Documento,
-	RESULTADOS.NOMBREEXAMEN as Examen,
-	RESULTADOS.CONSECUTIVO as Consecutivo,
-	RESULTADOS.resultado as Resultado,
-	RESULTADOS.unidades as Unidad,
-	RESULTADOS.VALORREFERENCIAMIN as ValorMin,
-	RESULTADOS.VALORREFERENCIAMAX as ValorMax,
-	RESULTADOS.fechavalida as FechaValidacion,
-	CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as NombreCompleto
-    
-FROM
-	ORDENES WITH (NOLOCK)
-INNER JOIN RESULTADOS WITH (NOLOCK) ON
-	RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
-WHERE
-	NUMEROIDENTIFICACION = ?
-group by
-	SECCION,
-	NUMEROIDENTIFICACION,
-	RESULTADOS.NOMBREEXAMEN,
-	RESULTADOS.CONSECUTIVO,
-	RESULTADOS.resultado,
-	RESULTADOS.unidades,
-	RESULTADOS.VALORREFERENCIAMIN,
-	RESULTADOS.VALORREFERENCIAMAX,
-	RESULTADOS.fechavalida,
-	FECHATOMAMUESTRA,
-	CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)
-    
-	
-order by RESULTADOS.NOMBREEXAMEN
-         
-        '''
-        
+            CONVERT(varchar,
+            FECHATOMAMUESTRA,
+            103) as Fecha,
+            SECCION as Descripcion,
+            NUMEROIDENTIFICACION as Documento,
+            RESULTADOS.NOMBREEXAMEN as Prueba,            
+            RESULTADOS.CONSECUTIVO as Consecutivo,
+            RESULTADOS.resultado as Resultado,
+            RESULTADOS.unidades as Unidad,
+            RESULTADOS.VALORREFERENCIAMIN as ValorMin,
+            RESULTADOS.VALORREFERENCIAMAX as ValorMax,
+            RESULTADOS.fechavalida as FechaValidacion,
+            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as NombreCompleto,
+            ORDENES.NOMBREEXAMEN as OrdenExamen
+            
+        FROM
+            ORDENES WITH (NOLOCK)
+        INNER JOIN RESULTADOS WITH (NOLOCK) ON
+            RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
+        WHERE
+            NUMEROIDENTIFICACION = ?
+        group by
+            SECCION,
+            NUMEROIDENTIFICACION,
+            RESULTADOS.NOMBREEXAMEN,
+            RESULTADOS.CONSECUTIVO,
+            RESULTADOS.resultado,
+            RESULTADOS.unidades,
+            RESULTADOS.VALORREFERENCIAMIN,
+            RESULTADOS.VALORREFERENCIAMAX,
+            RESULTADOS.fechavalida,
+            FECHATOMAMUESTRA,
+            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido),
+            ORDENES.NOMBREEXAMEN
+                   
+            
+        order by RESULTADOS.NOMBREEXAMEN         
+        '''        
         cursor.execute(query, cedula)
-        results = cursor.fetchall()
-        
+        results = cursor.fetchall()        
         # Group results by Consecutivo
         grouped_results = {}
         for record in results:
-            if record.Consecutivo not in grouped_results:
-                grouped_results[record.Consecutivo] = []
-            grouped_results[record.Consecutivo].append(record)
-
+            key = record.Consecutivo  # Simplified key
+            if key not in grouped_results:
+                grouped_results[key] = []
+            grouped_results[key].append(record)
         # Create PDF
         pdf = FPDF()
         pdf.add_page()
@@ -355,20 +354,21 @@ order by RESULTADOS.NOMBREEXAMEN
             pdf.ln(5)
 
             # Iterate through each group
-            for consecutivo, group in grouped_results.items():
+            for consecutivo, group in grouped_results.items():  # Modified iteration
                 # Add consecutivo header
                 pdf.set_font("Arial", 'B', size=10)
-                pdf.cell(0, 10, f"{consecutivo}", 0, 1, 'L')
-                # Get and print the exam name for this group
-                if group and hasattr(group[0], 'Examen'):
-                    pdf.set_font("Arial", 'B', size=10)
-                    pdf.cell(0, 10, f"{str(group[0].Examen)}", 0, 1, 'L')
+                pdf.cell(15, 5, f"{consecutivo}", 1, 1, 'R')
                 
-                pdf.ln(2)
+                # Get and print the exam name for this group
+                if group:  # Check if group has records
+                    pdf.cell(0, 10, f"{group[0].Descripcion}", 1, 1, 'L')
+                    pdf.cell(0, 10, f"{group[0].OrdenExamen}", 1, 1, 'L')
+
+                pdf.ln(5)
 
                 # Table headers
                 pdf.set_font("Arial", 'B', size=10)
-                headers = ["Examen","Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
+                headers = ["Prueba","Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
                 col_widths = [70, 20, 20, 20, 20, 30]
 
                 for header, width in zip(headers, col_widths):
@@ -379,7 +379,8 @@ order by RESULTADOS.NOMBREEXAMEN
                 pdf.set_font("Arial", size=6)
                 for record in group:
                     
-                    pdf.cell(70, 8, str(record.Examen), 1, 0, 'L')
+                    
+                    pdf.cell(70, 8, str(record.Prueba), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.Resultado), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.Unidad), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.ValorMin), 1, 0, 'L')
