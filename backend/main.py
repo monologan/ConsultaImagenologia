@@ -76,6 +76,49 @@ async def test_connection():
             cursor.close()
         if conn:
             conn.close()
+
+            # Test conexion labo
+@app.get("/test-connection_labo")
+async def test_connection():
+    conn = None
+    cursor = None
+    try:
+        # Intentar establecer la conexión
+        conn = pyodbc.connect(**DB_CONNECTION_RX)
+        cursor = conn.cursor()
+        cursor.execute("SELECT @@version")  # Consulta más informativa que retorna la versión de SQL Server
+        result = cursor.fetchone()
+        
+        return {
+            "status": "success",
+            "message": "Conexión establecida correctamente",
+            "details": {
+                "server": DB_CONNECTION_RX['server'],
+                "database": DB_CONNECTION_RX['database'],
+                "sql_version": result[0] if result else None
+            }
+
+        }
+    except pyodbc.Error as e:
+        # Manejo más específico del error
+        error_message = str(e)
+        if "Login failed" in error_message:
+            error_detail = "Error de autenticación: Verifique las credenciales (uid/pwd)"
+        elif "Cannot connect to server" in error_message:
+            error_detail = "No se puede conectar al servidor: Verifique la dirección IP y que el servidor esté activo"
+        else:
+            error_detail = error_message
+            
+        return {
+            "status": "error",
+            "message": "Error de conexión",
+            "error": error_detail
+        }
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
 class Record(BaseModel):
     cedula: str    
     # Agregar aquí los demás campos de tu vista
@@ -88,22 +131,29 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 detail="Se requiere al menos uno de los siguientes campos: cédula, fecha de nacimiento o tipo de código"
             )
         
-        conn = pyodbc.connect(**DB_CONNECTION)
+        conn = pyodbc.connect(**DB_CONNECTION_RX)
         cursor = conn.cursor()
               
         query = '''
         SELECT
-            CONCAT(arcnombre1,+' '+ arcnombre2,+' '+ arcapellido1,+' '+ arcapellido2 ) as Nombre,
-            arcid as Documento, CONVERT(varchar, arcfechanaci, 103) fecha
+            CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
+            ORDENES.NOMBREEXAMEN as NombreExamen,
+            NUMEROIDENTIFICACION as Documento,
+            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as Nombre
         FROM
-            archivo a WITH (NOLOCK)
-        where
-            (arcid = ? or ? IS NULL)
-            AND (tipcodigo = ? or ? IS NULL) AND (YEAR(arcfechanaci) = ? or ? IS NULL)
-    
+            ORDENES WITH (NOLOCK)
+        WHERE
+            NUMEROIDENTIFICACION = ?
+        GROUP BY
+            FECHATOMAMUESTRA,
+            ORDENES.NOMBREEXAMEN,
+            NUMEROIDENTIFICACION,
+            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)
+        ORDER BY
+            FECHATOMAMUESTRA DESC
         '''
 
-        cursor.execute(query, cedula, cedula, tipocodigo, tipocodigo, fechanacimiento, fechanacimiento)
+        cursor.execute(query, cedula)
         
         columns = [column[0] for column in cursor.description]
         results = []
@@ -275,7 +325,7 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
             103) as Fecha,
             SECCION as Descripcion,
             NUMEROIDENTIFICACION as Documento,
-            RESULTADOS.NOMBREEXAMEN as Prueba,            
+            RESULTADOS.NOMBREEXAMEN as Seccion,            
             RESULTADOS.CONSECUTIVO as Consecutivo,
             RESULTADOS.resultado as Resultado,
             RESULTADOS.unidades as Unidad,
@@ -290,7 +340,7 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
         INNER JOIN RESULTADOS WITH (NOLOCK) ON
             RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
         WHERE
-            NUMEROIDENTIFICACION = ?
+            NUMEROIDENTIFICACION = ? 
         group by
             SECCION,
             NUMEROIDENTIFICACION,
@@ -305,8 +355,8 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
             CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido),
             ORDENES.NOMBREEXAMEN
                    
-            
-        order by RESULTADOS.NOMBREEXAMEN         
+        order by resultados.NOMBREEXAMEN     
+                
         '''        
         cursor.execute(query, cedula)
         results = cursor.fetchall()        
@@ -317,6 +367,7 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
             if key not in grouped_results:
                 grouped_results[key] = []
             grouped_results[key].append(record)
+            
         # Create PDF
         pdf = FPDF()
         pdf.add_page()
@@ -346,7 +397,7 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
         if results:
             first_record = results[0]
             # Patient information
-            pdf.set_font("Arial", size=10)
+            pdf.set_font("Arial", 'B', size=10)
             pdf.cell(40, 8, "Documento:", 0, 0)
             pdf.cell(60, 8, str(first_record.Documento), 0, 1)
             pdf.cell(40, 8, "Paciente:", 0, 0)
@@ -355,21 +406,19 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
 
             # Iterate through each group
             for consecutivo, group in grouped_results.items():  # Modified iteration
-                # Add consecutivo header
-                pdf.set_font("Arial", 'B', size=10)
-                pdf.cell(15, 5, f"{consecutivo}", 1, 1, 'R')
+                # Add exam name and details for this group
+                pdf.set_font("Arial", 'B', size=12)
                 
-                # Get and print the exam name for this group
                 if group:  # Check if group has records
-                    pdf.cell(0, 10, f"{group[0].Descripcion}", 1, 1, 'L')
-                    pdf.cell(0, 10, f"{group[0].OrdenExamen}", 1, 1, 'L')
+                    pdf.cell(0, 8, f"{group[0].Descripcion}", 0, 1, 'L')
+                    pdf.cell(80, 8, f"{consecutivo} - {group[0].OrdenExamen}", 0, 1, 'L')
 
                 pdf.ln(5)
 
                 # Table headers
                 pdf.set_font("Arial", 'B', size=10)
-                headers = ["Prueba","Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
-                col_widths = [70, 20, 20, 20, 20, 30]
+                headers = ["OrdenExamen","Prueba","Resultado", "Unidad", "Valor Min", "Valor Max", "Fecha Valid"]
+                col_widths = [70,70, 20, 20, 20, 20, 30]
 
                 for header, width in zip(headers, col_widths):
                     pdf.cell(width, 10, header, 1, 0, 'C')
@@ -380,7 +429,8 @@ async def generate_rx_pdf(cedula: str, request: PDFRequest):
                 for record in group:
                     
                     
-                    pdf.cell(70, 8, str(record.Prueba), 1, 0, 'L')
+                    pdf.cell(70, 8, str(record.OrdenExamen), 1, 0, 'L')
+                    pdf.cell(70, 8, str(record.Seccion), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.Resultado), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.Unidad), 1, 0, 'L')
                     pdf.cell(20, 8, str(record.ValorMin), 1, 0, 'L')
