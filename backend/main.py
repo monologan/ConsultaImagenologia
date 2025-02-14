@@ -151,6 +151,7 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)
         ORDER BY
             FECHATOMAMUESTRA DESC
+            
         '''
 
         cursor.execute(query, cedula)
@@ -268,11 +269,11 @@ async def generate_pdf(cedula: str, request: PDFRequest):
             pdf.ln(5)
 
             # Results table
-            pdf.set_font("Arial", 'B', size=10)
+            pdf.set_font("Arial", 'B', size=8)
             # Define specific columns we want to show
-            columns = ["nombreexamen", "resultado", "unidades", "VALORREFERENCIAMIN", "VALORREFERENCIAMAX"]
-            headers = ["Examen", "Resultado", "Unidades", "Valor Min", "Valor Max"]
-            col_widths = [70, 40, 30, 25, 25]  # Total should be close to page_width (190-200)
+            columns = ["NombreExamen", "Resultado", "Unidad", "ValorMin-ValorMax","FechaValidacion"]
+            headers = ["Examen", "Resultado", "Unidades", "Valor Ref","Fecha Validacion"]
+            col_widths = [90, 25, 25, 25, 25]  # Total should be close to page_width (190-200)
 
             # Table headers
             for header, width in zip(headers, col_widths):
@@ -280,7 +281,7 @@ async def generate_pdf(cedula: str, request: PDFRequest):
             pdf.ln()
 
             # Table content
-            pdf.set_font("Arial", size=9)
+            pdf.set_font("Arial", size=6)
             for record in filtered_records["data"]:
                 for col, width in zip(columns, col_widths):
                     value = str(record.get(col, "")) if record.get(col) is not None else ""
@@ -311,7 +312,6 @@ async def generate_pdf(cedula: str, request: PDFRequest):
     except Exception as e:
         print(f"Error generando PDF: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
-
 @app.post("/api/rx-pdf/{cedula}")
 async def generate_rx_pdf(cedula: str, request: PDFRequest):
     try:
