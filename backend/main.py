@@ -89,29 +89,25 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
         SELECT
             CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
             ORDENES.NOMBREEXAMEN as NombreExamen, 
-            resultados.resultado as Resultado,
-            resultados.unidades as Unidad,
+            MAX(resultados.resultado) as Resultado,
+            MAX(resultados.unidades) as Unidad,
             NUMEROIDENTIFICACION as Documento,
-            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as Nombre
+            MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre
         FROM
             ORDENES WITH (NOLOCK)
         INNER JOIN RESULTADOS WITH (NOLOCK) ON
             RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
             and ordenes.CONSELABO = resultados.CONSELABO
-	        and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
+            and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
         WHERE
             NUMEROIDENTIFICACION = ?
         GROUP BY
-            ORDENES.NOMBREEXAMEN,            
-            resultados.resultado,
-            resultados.unidades,
             FECHATOMAMUESTRA,
-            NUMEROIDENTIFICACION,
-            CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)
+            ORDENES.NOMBREEXAMEN,
+            NUMEROIDENTIFICACION
         ORDER BY
-        	ORDENES.NOMBREEXAMEN,
-            FECHATOMAMUESTRA DESC
-            
+            FECHATOMAMUESTRA DESC,
+            ORDENES.NOMBREEXAMEN
         '''
 
         cursor.execute(query, cedula)
