@@ -90,9 +90,11 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             query = '''
             SELECT
                 CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
-                ORDENES.NOMBREEXAMEN as NombreExamen, 
+                ORDENES.NOMBREEXAMEN as NombreExamen,
+                resultados.nombreexamen as Prueba,
                 resultados.resultado as Resultado,
-                resultados.unidades as Unidad,
+                resultados.unidades as Unidad, 
+                concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX ) AS ValorRef,
                 NUMEROIDENTIFICACION as Documento,
                 CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as Nombre
             FROM
@@ -111,9 +113,11 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             query = '''
             SELECT
                 CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
-                ORDENES.NOMBREEXAMEN as NombreExamen, 
+                ORDENES.NOMBREEXAMEN as NombreExamen,
+                MAX(resultados.nombreexamen) as Prueba,
                 MAX(resultados.resultado) as Resultado,
                 MAX(resultados.unidades) as Unidad,
+                MAX(concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX )) AS ValorRef,
                 NUMEROIDENTIFICACION as Documento,
                 MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre
             FROM
@@ -193,11 +197,11 @@ async def generate_pdf(cedula: str, request: PDFRequest):
 
         # Header information
         pdf.set_font("Arial", 'B', size=12)
-        pdf.cell(0, 10, f"HISTORIAL DE RESULTADOS - {exam_name}", ln=True, align='C')
+        pdf.cell(0, 10, f"{exam_name}", ln=True, align='C')
         pdf.ln(5)
 
         # Patient information
-        pdf.set_font("Arial", size=10)
+        pdf.set_font("Arial", 'B', size=10)
         pdf.cell(40, 8, "Documento:", 0, 0)
         pdf.cell(60, 8, cedula, 0, 0)
         pdf.cell(40, 8, "Paciente:", 0, 0)
@@ -205,23 +209,23 @@ async def generate_pdf(cedula: str, request: PDFRequest):
         pdf.ln(5)
 
         # Define columns and widths
-        columns = ["Fecha", "Resultado","Unidad"]
-        headers = ["Fecha", "Resultado", "Unidad"]
-        col_widths = [50, 70, 70]  # Ajustados para mejor visualización
+        columns = ["Prueba","Resultado","Unidad","ValorRef","Fecha"]
+        headers = ["Prueba","Resultado","Unidad","Valor Refer","Fecha"]
+        col_widths = [120, 18, 18, 18, 18]  # Ajustados para mejor visualización
 
         # Table headers
-        pdf.set_font("Arial", 'B', size=8)
+        pdf.set_font("Arial", 'B', size=9)
         for header, width in zip(headers, col_widths):
             pdf.cell(width, 10, header, 1, 0, 'C')
         pdf.ln()
 
         # Table content
-        pdf.set_font("Arial", size=8)
+        pdf.set_font("Arial", size=7)
         for record in exam_records:
             for col, width in zip(columns, col_widths):
                 value = str(record.get(col, "")) if record.get(col) is not None else ""
                 # Ajustar la alineación según el tipo de dato
-                align = 'C' if col == "Fecha" else 'L'
+                align = 'L' if col == "Prueba" else 'C'
                 pdf.cell(width, 8, value, 1, 0, align)
             pdf.ln()
 
