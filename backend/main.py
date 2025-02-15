@@ -74,7 +74,7 @@ class Record(BaseModel):
     cedula: str    
     # Agregar aquí los demás campos de tu vista
 @app.get("/api/records")
-async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None):
+async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None, full_data: bool = False):
     try:
         if not any([cedula, fechanacimiento, tipocodigo]):
             raise HTTPException(
@@ -84,31 +84,54 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
         
         conn = pyodbc.connect(**DB_CONNECTION_LAB)
         cursor = conn.cursor()
-              
-        query = '''
-        SELECT
-            CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
-            ORDENES.NOMBREEXAMEN as NombreExamen, 
-            MAX(resultados.resultado) as Resultado,
-            MAX(resultados.unidades) as Unidad,
-            NUMEROIDENTIFICACION as Documento,
-            MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre
-        FROM
-            ORDENES WITH (NOLOCK)
-        INNER JOIN RESULTADOS WITH (NOLOCK) ON
-            RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
-            and ordenes.CONSELABO = resultados.CONSELABO
-            and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
-        WHERE
-            NUMEROIDENTIFICACION = ?
-        GROUP BY
-            FECHATOMAMUESTRA,
-            ORDENES.NOMBREEXAMEN,
-            NUMEROIDENTIFICACION
-        ORDER BY
-            FECHATOMAMUESTRA DESC,
-            ORDENES.NOMBREEXAMEN
-        '''
+        
+        # Use different queries for view and PDF
+        if full_data:
+            query = '''
+            SELECT
+                CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
+                ORDENES.NOMBREEXAMEN as NombreExamen, 
+                resultados.resultado as Resultado,
+                resultados.unidades as Unidad,
+                NUMEROIDENTIFICACION as Documento,
+                CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as Nombre
+            FROM
+                ORDENES WITH (NOLOCK)
+            INNER JOIN RESULTADOS WITH (NOLOCK) ON
+                RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
+                and ordenes.CONSELABO = resultados.CONSELABO
+                and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
+            WHERE
+                NUMEROIDENTIFICACION = ?
+            ORDER BY
+                FECHATOMAMUESTRA DESC,
+                ORDENES.NOMBREEXAMEN
+            '''
+        else:
+            query = '''
+            SELECT
+                CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
+                ORDENES.NOMBREEXAMEN as NombreExamen, 
+                MAX(resultados.resultado) as Resultado,
+                MAX(resultados.unidades) as Unidad,
+                NUMEROIDENTIFICACION as Documento,
+                MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre
+            FROM
+                ORDENES WITH (NOLOCK)
+            INNER JOIN RESULTADOS WITH (NOLOCK) ON
+                RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
+                and ordenes.CONSELABO = resultados.CONSELABO
+                and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
+            WHERE
+                NUMEROIDENTIFICACION = ?
+            GROUP BY
+                FECHATOMAMUESTRA,
+                ORDENES.NOMBREEXAMEN,
+                NUMEROIDENTIFICACION
+            ORDER BY
+                FECHATOMAMUESTRA DESC,
+                ORDENES.NOMBREEXAMEN
+            '''
 
         cursor.execute(query, cedula)
         
@@ -131,8 +154,8 @@ class PDFRequest(BaseModel):
 @app.post("/api/pdf/{cedula}")
 async def generate_pdf(cedula: str, request: PDFRequest):
     try:
-        # Obtener los datos
-        records = await get_records(cedula)
+        # Obtener los datos completos para el PDF
+        records = await get_records(cedula, full_data=True)
         if not records["data"] or not request.selectedIndices:
             raise HTTPException(status_code=400, detail="No se encontraron registros")
         
