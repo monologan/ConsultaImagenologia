@@ -12,7 +12,7 @@ app = FastAPI()
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://192.168.42.2:3000", "https://tu-dominio.com"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,19 +76,40 @@ class Record(BaseModel):
 @app.get("/api/records")
 async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None, full_data: bool = False):
     try:
-        if not any([cedula, fechanacimiento, tipocodigo]):
+        if not all([cedula, fechanacimiento, tipocodigo]):
             raise HTTPException(
                 status_code=400, 
-                detail="Se requiere al menos uno de los siguientes campos: cédula, fecha de nacimiento o tipo de código"
+                detail="Se requieren todos los campos: cédula, fecha de nacimiento y tipo de código"
             )
         
         conn = pyodbc.connect(**DB_CONNECTION_LAB)
         cursor = conn.cursor()
+
+        # Primero verificamos que los datos coincidan
+        validation_query = '''
+        SELECT COUNT (*)
+        FROM ORDENES WITH (NOLOCK)
+        INNER JOIN RESULTADOS WITH (NOLOCK) ON 
+            RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
+        WHERE 
+            ORDENES.NUMEROIDENTIFICACION = ? 
+            AND YEAR(ORDENES.FECHANACIMIENTO) = ?
+            AND ORDENES.TIPOIDENTIFICACION = ?
+        '''
         
-        # Use different queries for view and PDF
+        cursor.execute(validation_query, (cedula, fechanacimiento, tipocodigo))
+        count = cursor.fetchone()[0]
+
+        if count == 0:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontraron registros con los datos proporcionados o los datos no coinciden"
+            )
+        
+        # Si los datos son válidos, continuamos con la consulta original
         if full_data:
             query = '''
-            SELECT
+            SELECT DISTINCT
                 CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
                 ORDENES.NOMBREEXAMEN as NombreExamen,
                 resultados.nombreexamen as Prueba,
@@ -96,7 +117,11 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 resultados.unidades as Unidad, 
                 concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX ) AS ValorRef,
                 NUMEROIDENTIFICACION as Documento,
-                CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as Nombre
+                CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido) as Nombre,
+                ORDENES.FACTNUMERO,
+                ORDENES.CONSELABO,
+                ORDENES.CONSECUTIVO,
+                FECHATOMAMUESTRA
             FROM
                 ORDENES WITH (NOLOCK)
             INNER JOIN RESULTADOS WITH (NOLOCK) ON
@@ -104,10 +129,13 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 and ordenes.CONSELABO = resultados.CONSELABO
                 and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
             WHERE
-                NUMEROIDENTIFICACION = ?
+                ORDENES.NUMEROIDENTIFICACION = ?
+                AND YEAR(ORDENES.FECHANACIMIENTO) = ?
+                AND ORDENES.TIPOIDENTIFICACION = ?
             ORDER BY
                 FECHATOMAMUESTRA DESC,
-                ORDENES.NOMBREEXAMEN
+                ORDENES.NOMBREEXAMEN,
+                resultados.nombreexamen
             '''
         else:
             query = '''
@@ -118,8 +146,12 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 MAX(resultados.resultado) as Resultado,
                 MAX(resultados.unidades) as Unidad,
                 MAX(concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX )) AS ValorRef,
-                NUMEROIDENTIFICACION as Documento,
-                MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre
+                ORDENES.NUMEROIDENTIFICACION as Documento,
+                MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre,
+                ORDENES.FACTNUMERO,
+                ORDENES.CONSELABO,
+                ORDENES.CONSECUTIVO,
+                FECHATOMAMUESTRA
             FROM
                 ORDENES WITH (NOLOCK)
             INNER JOIN RESULTADOS WITH (NOLOCK) ON
@@ -127,17 +159,22 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 and ordenes.CONSELABO = resultados.CONSELABO
                 and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
             WHERE
-                NUMEROIDENTIFICACION = ?
+                ORDENES.NUMEROIDENTIFICACION = ?
+                AND YEAR(ORDENES.FECHANACIMIENTO) = ?
+                AND ORDENES.TIPOIDENTIFICACION = ?
             GROUP BY
                 FECHATOMAMUESTRA,
                 ORDENES.NOMBREEXAMEN,
-                NUMEROIDENTIFICACION
+                ORDENES.NUMEROIDENTIFICACION,
+                ORDENES.FACTNUMERO,
+                ORDENES.CONSELABO,
+                ORDENES.CONSECUTIVO
             ORDER BY
                 FECHATOMAMUESTRA DESC,
                 ORDENES.NOMBREEXAMEN
             '''
 
-        cursor.execute(query, cedula)
+        cursor.execute(query, (cedula, fechanacimiento, tipocodigo))
         
         columns = [column[0] for column in cursor.description]
         results = []
@@ -147,109 +184,148 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             
         return {"data": results}
     
+    except HTTPException as he:
+        raise he
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
-        cursor.close()
-        conn.close()
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
 
 class PDFRequest(BaseModel):
     selectedIndices: List[int]
 @app.post("/api/pdf/{cedula}")
-async def generate_pdf(cedula: str, request: PDFRequest):
+async def generate_pdf(
+    request: PDFRequest, 
+    cedula: str,
+    fechanacimiento: str = None,
+    tipocodigo: str = None
+):
     try:
-        # Obtener los datos completos para el PDF
-        records = await get_records(cedula, full_data=True)
-        if not records["data"] or not request.selectedIndices:
-            raise HTTPException(status_code=400, detail="No se encontraron registros")
-        
-        # Obtener el primer registro seleccionado para identificar el examen
-        first_selected = records["data"][request.selectedIndices[0]]
-        exam_name = first_selected["NombreExamen"]
-        
-        # Filtrar todos los resultados que correspondan a ese examen
-        exam_records = [
-            record for record in records["data"] 
-            if record["NombreExamen"] == exam_name
-        ]
-        
-        # Ordenar por fecha (más reciente primero)
-        exam_records.sort(key=lambda x: x["Fecha"], reverse=True)
-        
-        # Create PDF
+        print(f"Recibiendo solicitud PDF con parámetros:", {
+            "cedula": cedula,
+            "fechanacimiento": fechanacimiento,
+            "tipocodigo": tipocodigo,
+            "selectedIndices": request.selectedIndices if request else None
+        })
+
+        # Validaciones iniciales...
+        if not all([cedula, fechanacimiento, tipocodigo]):
+            raise HTTPException(status_code=400, detail="Faltan parámetros requeridos")
+
+        # Obtener registros
+        records_response = await get_records(
+            cedula=cedula,
+            fechanacimiento=fechanacimiento,
+            tipocodigo=tipocodigo,
+            full_data=True
+        )
+
+        if not records_response.get("data"):
+            raise HTTPException(status_code=404, detail="No se encontraron registros")
+
+        # Crear PDF
         pdf = FPDF()
         pdf.add_page()
-        page_width = pdf.w
         
-        # Add logo
-        try:
-            current_dir = os.path.dirname(os.path.abspath(__file__))
-            logo_path = os.path.join(current_dir, 'static', 'logo.jpg')
-            
-            if os.path.exists(logo_path):
-                logo_width = 50
-                logo_height = 30
-                x_position = (page_width - logo_width) / 2
-                pdf.image(logo_path, x=x_position, y=10, w=logo_width, h=logo_height)
-                pdf.ln(35)
-        except Exception as e:
-            print(f"Error al cargar el logo: {str(e)}")
-
-        # Header information
-        pdf.set_font("Arial", 'B', size=12)
-        pdf.cell(0, 10, f"{exam_name}", ln=True, align='C')
+        # Configurar fuente
+        pdf.set_font("Arial", "B", 16)
+        
+        # Título
+        pdf.cell(0, 10, "Resultados de Laboratorio", ln=True, align="C")
+        pdf.ln(10)
+        # Información del paciente
+        pdf.set_font("Arial", "B", 12)
+        selected_record = records_response["data"][request.selectedIndices[0]]
+        selected_factnumero = selected_record['FACTNUMERO']
+        selected_conselabo = selected_record['CONSELABO']
+        selected_consecutivo = selected_record['CONSECUTIVO']
+        
+        pdf.cell(0, 10, f"Paciente: {selected_record['Nombre']}", ln=True)
+        pdf.cell(0, 10, f"Documento: {selected_record['Documento']}", ln=True)
+        pdf.cell(0, 10, f"Fecha: {selected_record['Fecha']}", ln=True)
+        pdf.ln(10)
+        # Resultados
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Resultados del examen: {selected_record['NombreExamen']}", ln=True)
         pdf.ln(5)
-
-        # Patient information
-        pdf.set_font("Arial", 'B', size=10)
-        pdf.cell(40, 8, "Documento:", 0, 0)
-        pdf.cell(60, 8, cedula, 0, 0)
-        pdf.cell(40, 8, "Paciente:", 0, 0)
-        pdf.cell(50, 8, exam_records[0].get("Nombre", ""), 0, 1)
-        pdf.ln(5)
-
-        # Define columns and widths
-        columns = ["Prueba","Resultado","Unidad","ValorRef","Fecha"]
-        headers = ["Prueba","Resultado","Unidad","Valor Refer","Fecha"]
-        col_widths = [120, 18, 18, 18, 18]  # Ajustados para mejor visualización
-
-        # Table headers
-        pdf.set_font("Arial", 'B', size=9)
-        for header, width in zip(headers, col_widths):
-            pdf.cell(width, 10, header, 1, 0, 'C')
+        # Encabezados de la tabla
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(115, 7, "Prueba", 1)
+        pdf.cell(25, 7, "Resultado", 1)
+        pdf.cell(25, 7, "Unidad", 1)
+        pdf.cell(25, 7, "Valor Ref.", 1)
         pdf.ln()
-
-        # Table content
-        pdf.set_font("Arial", size=7)
-        for record in exam_records:
-            for col, width in zip(columns, col_widths):
-                value = str(record.get(col, "")) if record.get(col) is not None else ""
-                # Ajustar la alineación según el tipo de dato
-                align = 'L' if col == "Prueba" else 'C'
-                pdf.cell(width, 8, value, 1, 0, align)
-            pdf.ln()
-
-        # Add observations if any
-        pdf.ln(5)
-        pdf.set_font("Arial", 'B', size=10)
-        pdf.cell(0, 8, "Observaciones:", 0, 1)
-        pdf.set_font("Arial", size=9)
-        for record in exam_records:
-            obs = record.get("labobservaciones", "")
-            if obs and obs != "null":
-                pdf.multi_cell(0, 5, obs)
-
-        # Get PDF content
-        pdf_content = pdf.output(dest='S').encode('latin-1')
+        # Datos de la tabla
+        pdf.set_font("Arial", "", 8)
+        # Filtrar los registros que corresponden al examen seleccionado
+        selected_index = request.selectedIndices[0]
+        selected_record = records_response["data"][selected_index]
         
+        # Print debug info
+        print(f"Selected index: {selected_index}")
+        print(f"Selected record: {selected_record['NombreExamen']}, FACTNUMERO: {selected_record['FACTNUMERO']}")
+        
+        # Get the unique identifiers for this record
+        selected_factnumero = selected_record['FACTNUMERO']
+        selected_conselabo = selected_record['CONSELABO']
+        selected_consecutivo = selected_record['CONSECUTIVO']
+        selected_fecha = selected_record['FECHATOMAMUESTRA']
+        
+        # Get all results for this specific exam
+        exam_results = []
+        seen_pruebas = set()  # To avoid duplicate tests
+        
+        for r in records_response["data"]:
+            if (r['FACTNUMERO'] == selected_factnumero and
+                r['CONSELABO'] == selected_conselabo and
+                r['CONSECUTIVO'] == selected_consecutivo and
+                r['NombreExamen'] == selected_record['NombreExamen']):
+                
+                # Only add if we haven't seen this test before
+                if r['Prueba'] not in seen_pruebas:
+                    seen_pruebas.add(r['Prueba'])
+                    exam_results.append(r)
+        
+        # Debug info
+        print(f"Found {len(exam_results)} unique tests for this exam")
+        
+        # Ordenar los resultados por fecha de toma de muestra
+        exam_results.sort(key=lambda x: x['FECHATOMAMUESTRA'], reverse=True)
+        # Imprimir todas las pruebas del examen
+        for result in exam_results:
+            pdf.cell(115, 7, result['Prueba'], 1)
+            pdf.cell(25, 7, result['Resultado'], 1)
+            pdf.cell(25, 7, result['Unidad'], 1)
+            pdf.cell(25, 7, result['ValorRef'], 1)
+            pdf.ln()
+        
+        # Generar el contenido del PDF
+        try:
+            pdf_content = pdf.output(dest='S').encode('latin-1')
+        except Exception as e:
+            print(f"Error al generar el PDF: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error al generar el PDF")
+        
+        # Retornar el PDF
         return Response(
             content=pdf_content,
             media_type="application/pdf",
             headers={
-                "Content-Disposition": f"attachment; filename=historial_{exam_name}_{cedula}.pdf"
+                "Content-Disposition": f"attachment; filename=resultado_{cedula}.pdf",
+                "Access-Control-Expose-Headers": "Content-Disposition",
+                "Access-Control-Allow-Origin": "*"
             }
         )
-        
+
+    except HTTPException as he:
+        print(f"Error HTTP: {str(he.detail)}")
+        raise he
     except Exception as e:
-        print(f"Error generando PDF: {str(e)}")
-        raise HTTPException(status_code=500, detail=str(e))
+        print(f"Error inesperado: {str(e)}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error inesperado: {str(e)}"
+        )
