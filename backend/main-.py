@@ -74,7 +74,7 @@ class Record(BaseModel):
     cedula: str    
     # Agregar aquí los demás campos de tu vista
 @app.get("/api/records")
-async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None):
+async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodigo: str = None, full_data: bool = False):
     try:
         if not all([cedula, fechanacimiento, tipocodigo]):
             raise HTTPException(
@@ -107,8 +107,8 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             )
         
         # Si los datos son válidos, continuamos con la consulta original
-        # if full_data:
-        query = '''
+        if full_data:
+            query = '''
             SELECT DISTINCT
                 CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
                 ORDENES.NOMBREEXAMEN as NombreExamen,
@@ -137,42 +137,42 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 ORDENES.NOMBREEXAMEN,
                 resultados.nombreexamen
             '''
-        # else:
-        #     query = '''
-        #     SELECT
-        #         CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
-        #         ORDENES.NOMBREEXAMEN as NombreExamen,
-        #         MAX(resultados.nombreexamen) as Prueba,
-        #         MAX(resultados.resultado) as Resultado,
-        #         MAX(resultados.unidades) as Unidad,
-        #         MAX(concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX )) AS ValorRef,
-        #         ORDENES.NUMEROIDENTIFICACION as Documento,
-        #         MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre,
-        #         ORDENES.FACTNUMERO,
-        #         ORDENES.CONSELABO,
-        #         ORDENES.CONSECUTIVO,
-        #         FECHATOMAMUESTRA
-        #     FROM
-        #         ORDENES WITH (NOLOCK)
-        #     INNER JOIN RESULTADOS WITH (NOLOCK) ON
-        #         RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
-        #         and ordenes.CONSELABO = resultados.CONSELABO
-        #         and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
-        #     WHERE
-        #         ORDENES.NUMEROIDENTIFICACION = ?
-        #         AND YEAR(ORDENES.FECHANACIMIENTO) = ?
-        #         AND ORDENES.TIPOIDENTIFICACION = ?
-        #     GROUP BY
-        #         FECHATOMAMUESTRA,
-        #         ORDENES.NOMBREEXAMEN,
-        #         ORDENES.NUMEROIDENTIFICACION,
-        #         ORDENES.FACTNUMERO,
-        #         ORDENES.CONSELABO,
-        #         ORDENES.CONSECUTIVO
-        #     ORDER BY
-        #         FECHATOMAMUESTRA DESC,
-        #         ORDENES.NOMBREEXAMEN
-        #     '''
+        else:
+            query = '''
+            SELECT
+                CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
+                ORDENES.NOMBREEXAMEN as NombreExamen,
+                MAX(resultados.nombreexamen) as Prueba,
+                MAX(resultados.resultado) as Resultado,
+                MAX(resultados.unidades) as Unidad,
+                MAX(concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX )) AS ValorRef,
+                ORDENES.NUMEROIDENTIFICACION as Documento,
+                MAX(CONCAT(primernombre, ' ', segundonombre, ' ', primerapellido, ' ', segundoapellido)) as Nombre,
+                ORDENES.FACTNUMERO,
+                ORDENES.CONSELABO,
+                ORDENES.CONSECUTIVO,
+                FECHATOMAMUESTRA
+            FROM
+                ORDENES WITH (NOLOCK)
+            INNER JOIN RESULTADOS WITH (NOLOCK) ON
+                RESULTADOS.FACTNUMERO = ORDENES.FACTNUMERO
+                and ordenes.CONSELABO = resultados.CONSELABO
+                and ordenes.CONSECUTIVO = resultados.CONSECUTIVO
+            WHERE
+                ORDENES.NUMEROIDENTIFICACION = ?
+                AND YEAR(ORDENES.FECHANACIMIENTO) = ?
+                AND ORDENES.TIPOIDENTIFICACION = ?
+            GROUP BY
+                FECHATOMAMUESTRA,
+                ORDENES.NOMBREEXAMEN,
+                ORDENES.NUMEROIDENTIFICACION,
+                ORDENES.FACTNUMERO,
+                ORDENES.CONSELABO,
+                ORDENES.CONSECUTIVO
+            ORDER BY
+                FECHATOMAMUESTRA DESC,
+                ORDENES.NOMBREEXAMEN
+            '''
 
         cursor.execute(query, (cedula, fechanacimiento, tipocodigo))
         
@@ -220,7 +220,7 @@ async def generate_pdf(
             cedula=cedula,
             fechanacimiento=fechanacimiento,
             tipocodigo=tipocodigo,
-            # full_data=True
+            full_data=True
         )
 
         if not records_response.get("data"):
