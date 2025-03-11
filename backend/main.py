@@ -12,7 +12,7 @@ app = FastAPI()
 # Configurar CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Update this
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -220,7 +220,6 @@ async def generate_pdf(
             cedula=cedula,
             fechanacimiento=fechanacimiento,
             tipocodigo=tipocodigo,
-            # full_data=True
         )
 
         if not records_response.get("data"):
@@ -230,33 +229,51 @@ async def generate_pdf(
         pdf = FPDF()
         pdf.add_page()
         
+        # Agregar logo al PDF
+        logo_path = os.path.join(os.path.dirname(__file__), "static", "logo.jpg")
+        if os.path.exists(logo_path):
+            # SVG no es soportado directamente por FPDF, usar un formato compatible como PNG o JPG
+            # Si tienes el logo en PNG o JPG, usa esa ruta en lugar de SVG
+            pdf.image(logo_path, x=3, y=8, w=60)
+        
         # Configurar fuente
         pdf.set_font("Arial", "B", 16)
         
         # Título
         pdf.cell(0, 10, "Resultados de Laboratorio", ln=True, align="C")
-        pdf.ln(10)
+        pdf.set_font("Arial", "B", 10)
+        pdf.set_fill_color(193, 229, 252)
+        pdf.set_text_color(25, 48, 129)
+        pdf.cell(0, 5, "Laboratorio Clinico", ln=True, align="R")
+        pdf.cell(0, 5, "Nit: 82200831-5", ln=True, align="R")
+        pdf.cell(0, 5, "CALLE 20 # 14-45  Tel:6022317323 - 3167717018", ln=True, align="R")
+        pdf.cell(0, 5, "TULUA VALLE DEL CAUCA", ln=True, align="R")
+        pdf.ln(2)
         # Información del paciente
         pdf.set_font("Arial", "B", 12)
+        pdf.set_fill_color(240, 240, 240)  # Light gray background
+        pdf.set_text_color(0, 0, 0)
         selected_record = records_response["data"][request.selectedIndices[0]]
         selected_factnumero = selected_record['FACTNUMERO']
         selected_conselabo = selected_record['CONSELABO']
         selected_consecutivo = selected_record['CONSECUTIVO']
         
-        pdf.cell(0, 10, f"Paciente: {selected_record['Nombre']}", ln=True)
-        pdf.cell(0, 10, f"Documento: {selected_record['Documento']}", ln=True)
-        pdf.cell(0, 10, f"Fecha: {selected_record['Fecha']}", ln=True)
-        pdf.ln(10)
+        pdf.cell(0, 5, f"Paciente: {selected_record['Nombre']}",0, 1, 'L', True)
+        pdf.cell(0, 5, f"Documento: {selected_record['Documento']}",0, 1, 'L', True)
+        pdf.cell(0, 5, f"Fecha: {selected_record['Fecha']}",0, 1, 'L', True)
+        pdf.ln(5)
         # Resultados
         pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Resultados del examen: {selected_record['NombreExamen']}", ln=True)
         pdf.ln(5)
         # Encabezados de la tabla
         pdf.set_font("Arial", "B", 10)
-        pdf.cell(115, 7, "Prueba", 1)
-        pdf.cell(25, 7, "Resultado", 1)
-        pdf.cell(25, 7, "Unidad", 1)
-        pdf.cell(25, 7, "Valor Ref.", 1)
+        pdf.set_fill_color(143, 188, 139)  # Light gray background
+        pdf.set_text_color(0, 0, 0)
+        pdf.cell(115, 7, "Prueba", 0, 0, 'C', True)
+        pdf.cell(25, 7, "Resultado",0, 0, 'C', True)
+        pdf.cell(25, 7, "Unidad",0, 0, 'C', True)
+        pdf.cell(25, 7, "Valor Ref.",0, 0, 'C', True)
         pdf.ln()
         # Datos de la tabla
         pdf.set_font("Arial", "", 8)
@@ -296,10 +313,10 @@ async def generate_pdf(
         exam_results.sort(key=lambda x: x['FECHATOMAMUESTRA'], reverse=True)
         # Imprimir todas las pruebas del examen
         for result in exam_results:
-            pdf.cell(115, 7, result['Prueba'], 1)
-            pdf.cell(25, 7, result['Resultado'], 1)
-            pdf.cell(25, 7, result['Unidad'], 1)
-            pdf.cell(25, 7, result['ValorRef'], 1)
+            pdf.cell(115, 7, result['Prueba'], 0)
+            pdf.cell(25, 7, result['Resultado'], 0)
+            pdf.cell(25, 7, result['Unidad'], 0)
+            pdf.cell(25, 7, result['ValorRef'], 0)
             pdf.ln()
         
         # Generar el contenido del PDF
