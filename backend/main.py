@@ -113,6 +113,10 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 CONVERT(varchar, FECHATOMAMUESTRA, 103) as Fecha,
                 ORDENES.NOMBREEXAMEN as NombreExamen,
                 resultados.nombreexamen as Prueba,
+                ORDENES.horaordenamiento as horaOrd,
+                ORDENES.horatomamuestra as horaToma,
+                ORDENES.epsnombre as EPS,
+                resultados.usuariovalida as Bacteriologo,
                 resultados.resultado as Resultado,
                 resultados.unidades as Unidad, 
                 concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX ) AS ValorRef,
@@ -135,7 +139,11 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             ORDER BY
                 FECHATOMAMUESTRA DESC,
                 ORDENES.NOMBREEXAMEN,
-                resultados.nombreexamen
+                resultados.nombreexamen,
+                resultados.usuariovalida,
+                ORDENES.horaordenamiento,
+                ORDENES.horatomamuestra,
+                ORDENES.epsnombre
             '''
         # else:
         #     query = '''
@@ -226,7 +234,7 @@ async def generate_pdf(
             raise HTTPException(status_code=404, detail="No se encontraron registros")
 
         # Crear PDF
-        pdf = FPDF()
+        pdf = FPDF(orientation="P", unit="mm", format="Letter")
         pdf.add_page()
         
         # Agregar logo al PDF
@@ -258,9 +266,41 @@ async def generate_pdf(
         selected_conselabo = selected_record['CONSELABO']
         selected_consecutivo = selected_record['CONSECUTIVO']
         
-        pdf.cell(0, 5, f"Paciente: {selected_record['Nombre']}",0, 1, 'L', True)
-        pdf.cell(0, 5, f"Documento: {selected_record['Documento']}",0, 1, 'L', True)
-        pdf.cell(0, 5, f"Fecha: {selected_record['Fecha']}",0, 1, 'L', True)
+        # Keep labels bold but make values regular
+        pdf.cell(45, 5, f"Paciente: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['Nombre']}", 0, 1, 'L', True)
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"Documento: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['Documento']}", 0, 1, 'L', True)
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"Fecha: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['Fecha']}", 0, 1, 'L', True)
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"E.P.S: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['EPS']}", 0, 1, 'L', True)
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"Bacteriologo: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['Bacteriologo']}", 0, 1, 'L', True)
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"Hora Ordenamiento: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['horaOrd']}", 0, 1, 'L', True)
+
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"Hora Toma: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['horaToma']}", 0, 1, 'L', True)
+        
         pdf.ln(5)
         # Resultados
         pdf.set_font("Arial", "B", 12)
@@ -271,9 +311,9 @@ async def generate_pdf(
         pdf.set_fill_color(143, 188, 139)  # Light gray background
         pdf.set_text_color(0, 0, 0)
         pdf.cell(115, 7, "Prueba", 0, 0, 'C', True)
-        pdf.cell(25, 7, "Resultado",0, 0, 'C', True)
-        pdf.cell(25, 7, "Unidad",0, 0, 'C', True)
-        pdf.cell(25, 7, "Valor Ref.",0, 0, 'C', True)
+        pdf.cell(27, 7, "Resultado",0, 0, 'C', True)
+        pdf.cell(27, 7, "Unidad",0, 0, 'C', True)
+        pdf.cell(27, 7, "Valor Ref.",0, 0, 'C', True)
         pdf.ln()
         # Datos de la tabla
         pdf.set_font("Arial", "", 8)
@@ -313,10 +353,10 @@ async def generate_pdf(
         exam_results.sort(key=lambda x: x['FECHATOMAMUESTRA'], reverse=True)
         # Imprimir todas las pruebas del examen
         for result in exam_results:
-            pdf.cell(115, 7, result['Prueba'], 0)
-            pdf.cell(25, 7, result['Resultado'], 0)
-            pdf.cell(25, 7, result['Unidad'], 0)
-            pdf.cell(25, 7, result['ValorRef'], 0)
+            pdf.cell(115, 7, result['Prueba'], 0, 0, 'L')
+            pdf.cell(27, 7, result['Resultado'], 0, 0, 'C')
+            pdf.cell(27, 7, result['Unidad'],0, 0, 'C')
+            pdf.cell(27, 7, result['ValorRef'], 0, 0, 'C')
             pdf.ln()
         
         # Generar el contenido del PDF
