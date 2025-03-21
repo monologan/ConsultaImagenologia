@@ -2,6 +2,7 @@
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
+import mysql.connector
 import pyodbc
 from fpdf import FPDF
 from pydantic import BaseModel
@@ -25,24 +26,32 @@ DB_CONNECTION_LAB = {
     'uid': 'interlab',
     'pwd': 'Interlab2019'
 }
+# DB connection for RX system
+DB_CONNECTION_RX = {
+    'host': '186.118.137.244',
+    'port': 3306,
+    'database': 'DBIMGDIAG',
+    'user': 'hrcv',
+    'password': 'vcfsS8f8LGuQJxM7'
+}
 # Test conexion
 @app.get("/test-connection")
 async def test_connection():
     conn = None
     cursor = None
     try:
-        # Intentar establecer la conexión
-        conn = pyodbc.connect(**DB_CONNECTION_LAB)
+        # Intentar establecer la conexión con MySQL
+        conn = mysql.connector.connect(**DB_CONNECTION_RX)
         cursor = conn.cursor()
-        cursor.execute("SELECT @@version")  # Consulta más informativa que retorna la versión de SQL Server
+        cursor.execute("SELECT VERSION()")  # Consulta para obtener la versión de MySQL
         result = cursor.fetchone()
         
         return {
             "status": "success",
             "message": "Conexión establecida correctamente",
             "details": {
-                "server": DB_CONNECTION_LAB['server'],
-                "database": DB_CONNECTION_LAB['database'],
+                "server": DB_CONNECTION_RX['host'],
+                "database": DB_CONNECTION_RX['database'],
                 "sql_version": result[0] if result else None
             }
 
@@ -67,8 +76,56 @@ async def test_connection():
             cursor.close()
         if conn:
             conn.close()
+# Add a new endpoint to get RX records
+@app.get("/api/rx-records")
+async def get_rx_records(cedula:str = None, nombre:str = None):
+    try:
+        if not all([cedula, nombre]):
+            raise HTTPException(
+                status_code=400, 
+                detail="Se requieren todos los campos: cédula, nombre"
+            )
+        
+        conn = mysql.connector.connect(**DB_CONNECTION_RX)
+        cursor = conn.cursor(dictionary=True)
 
-            # Test conexion labo
+        # Consulta para obtener datos de radiología
+        query = '''
+            SELECT NOMBRE_PACIENTE, ID_PACIENTE FROM DBIMGDIAG.HRCV AS h  
+            WHERE
+                NOMBRE_PACIENTE = %s
+                AND ID_PACIENTE = %s
+            LIMIT 20    
+        '''
+        
+        cursor.execute(query, (nombre, cedula))
+        results = cursor.fetchall()
+        
+        if not results:
+            raise HTTPException(
+                status_code=404,
+                detail="No se encontraron registros de radiología con los datos proporcionados"
+            )
+            
+        return {"data": results}
+    
+    except mysql.connector.Error as e:
+        error_message = str(e)
+        if "Access denied" in error_message:
+            raise HTTPException(status_code=401, detail="Error de autenticación en la base de datos de radiología")
+        elif "Can't connect" in error_message:
+            raise HTTPException(status_code=503, detail="No se puede conectar al servidor de radiología")
+        else:
+            raise HTTPException(status_code=500, detail=f"Error de MySQL: {error_message}")
+    except HTTPException as he:
+        raise he
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if 'cursor' in locals():
+            cursor.close()
+        if 'conn' in locals():
+            conn.close()
 
 class Record(BaseModel):
     cedula: str    
@@ -201,7 +258,6 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
             cursor.close()
         if 'conn' in locals():
             conn.close()
-
 class PDFRequest(BaseModel):
     selectedIndices: List[int]
 @app.post("/api/pdf/{cedula}")
