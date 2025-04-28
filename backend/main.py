@@ -182,7 +182,12 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 ORDENES.FACTNUMERO,
                 ORDENES.CONSELABO,
                 ORDENES.CONSECUTIVO,
-                FECHATOMAMUESTRA
+                FECHATOMAMUESTRA,
+                CASE
+                    resultado WHEN 'MEMO' 
+                THEN COMENTARIORESU
+                ELSE RESULTADO
+                END resultado
             FROM
                 ORDENES WITH (NOLOCK)
             INNER JOIN RESULTADOS WITH (NOLOCK) ON
@@ -367,11 +372,9 @@ async def generate_pdf(
         pdf.set_fill_color(143, 188, 139)  # Light gray background
         pdf.set_text_color(0, 0, 0)
         pdf.cell(115, 7, "Prueba", 0, 0, 'C', True)
-        pdf.cell(27, 7, "Resultado",0, 0, 'C', True)
-        pdf.cell(27, 7, "Unidad",0, 0, 'C', True)
-        pdf.cell(27, 7, "Valor Ref.",0, 0, 'C', True)
-        pdf.ln()
-        # Datos de la tabla
+        pdf.cell(40, 7, "Resultado",0, 0, 'C', True)
+        pdf.cell(20, 7, "Unidad",0, 0, 'C', True)
+        pdf.cell(21, 7, "Valor Ref.",0, 1, 'C', True)
         pdf.set_font("Arial", "", 8)
         # Filtrar los registros que corresponden al examen seleccionado
         selected_index = request.selectedIndices[0]
@@ -409,13 +412,73 @@ async def generate_pdf(
         exam_results.sort(key=lambda x: x['FECHATOMAMUESTRA'], reverse=True)
         # Imprimir todas las pruebas del examen
         for result in exam_results:
+            # Check if we need a new page before printing each row
+            if pdf.get_y() > 250:  # Leave space for signature
+                pdf.add_page()
+                # Re-add headers
+                pdf.set_font("Arial", "B", 10)
+                pdf.set_fill_color(143, 188, 139)
+                pdf.cell(115, 7, "Prueba", 0, 0, 'C', True)
+                pdf.cell(40, 7, "Resultado",0, 0, 'C', True)
+                pdf.cell(20, 7, "Unidad",0, 0, 'C', True)
+                pdf.cell(21, 7, "Valor Ref.",0, 1, 'C', True)
+                pdf.set_font("Arial", "", 8)
+            
+            initial_y = pdf.get_y()
             pdf.cell(115, 7, result['Prueba'], 0, 0, 'L')
-            pdf.cell(27, 7, result['Resultado'], 0, 0, 'C')
-            pdf.cell(27, 7, result['Unidad'],0, 0, 'C')
-            pdf.cell(27, 7, result['ValorRef'], 0, 0, 'C')
-            pdf.ln()
+            
+            # Guardar la posición X después de la celda Prueba
+            x_after_prueba = pdf.get_x()
+            
+            # Usar multi_cell para el resultado con alineación superior
+            current_y = pdf.get_y()
+            pdf.multi_cell(40, 7, result['resultado'], 1, 'R')  # 'T' for top alignment
+            
+            # Calcular la altura máxima usada por el multi_cell
+            final_y = pdf.get_y()
+            line_height = final_y - current_y
+            
+            # Volver a la posición después del resultado
+            pdf.set_xy(x_after_prueba + 40, current_y)
+            
+            # Dibujar las celdas restantes con la misma altura
+            pdf.cell(20, line_height, result['Unidad'], 0, 0, 'C')
+            pdf.cell(21, line_height, result['ValorRef'], 0, 1, 'C')
+
+        # Check if we need a new page for signature
+        if pdf.get_y() > 220:  # If less than ~3cm from bottom
+            pdf.add_page()
         
-        # Generar el contenido del PDF
+        # Añadir espacio para la firma
+        pdf.ln(20)  # Espacio antes de la firma
+        
+        # Buscar la firma del bacteriólogo
+        bacteriologo = selected_record['Bacteriologo']
+        # Buscar firma en diferentes formatos de imagen
+        signature_found = False
+        for ext in ['.png', '.jpg', '.jpeg']:
+            firma_path = os.path.join(os.path.dirname(__file__), "static", "firmas", f"{bacteriologo}{ext}")
+            if os.path.exists(firma_path):
+                # Añadir la firma como imagen
+                pdf.image(firma_path, x=10, y=pdf.get_y(), w=50)
+                pdf.ln(15)  # Espacio después de la firma
+                signature_found = True
+                break
+        
+        # Si no se encuentra la firma, solo mostrar la línea
+        if not signature_found:
+            pdf.ln(10)  # Menos espacio si no hay firma
+            
+        # Añadir línea para la firma
+        pdf.line(10, pdf.get_y(), 60, pdf.get_y())
+        
+        # Añadir nombre del bacteriólogo bajo la línea
+        pdf.set_font("Arial", "B", 10)
+        #pdf.cell(80, 5, f"{bacteriologo}", 0, 1, 'L')
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(80, 5, "Bacteriólogo", 0, 1, 'L')
+        
+        # Continuar con el código existente para generar el PDF
         try:
             pdf_content = pdf.output(dest='S').encode('latin-1')
         except Exception as e:
