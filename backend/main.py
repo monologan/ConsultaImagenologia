@@ -8,6 +8,7 @@ from fpdf import FPDF
 from pydantic import BaseModel
 from typing import List
 import os
+from textwrap import wrap
 
 app = FastAPI()
 # Configurar CORS
@@ -418,32 +419,44 @@ async def generate_pdf(
                 # Re-add headers
                 pdf.set_font("Arial", "B", 10)
                 pdf.set_fill_color(143, 188, 139)
-                pdf.cell(115, 7, "Prueba", 0, 0, 'C', True)
-                pdf.cell(40, 7, "Resultado",0, 0, 'C', True)
+                pdf.cell(100, 7, "Prueba", 0, 0, 'C', True)
+                pdf.cell(55, 7, "Resultado",0, 0, 'C', True)
                 pdf.cell(20, 7, "Unidad",0, 0, 'C', True)
                 pdf.cell(21, 7, "Valor Ref.",0, 1, 'C', True)
                 pdf.set_font("Arial", "", 8)
             
-            initial_y = pdf.get_y()
-            pdf.cell(115, 7, result['Prueba'], 0, 0, 'L')
-            
-            # Guardar la posición X después de la celda Prueba
+            # Define the width of the "Resultado" column and the maximum length for each line
+            resultado_width = 55  # Width of the multi_cell
+            max_line_length = resultado_width - 0  # 2px shorter than the width
+
+            # Split the "Resultado" text into lines that fit within the column width
+            wrapped_lines = wrap(result['resultado'].strip(), width=max_line_length // 2)  # Adjust width as needed
+
+            # Determine the height of each line and the total height of the wrapped content
+            line_height = 4
+            wrapped_height = len(wrapped_lines) * line_height
+
+            # Determine the maximum height for the row
+            row_height = max(7, wrapped_height)
+
+            # Draw the first cell (Prueba)
+            pdf.cell(100, row_height, result['Prueba'], 0, 0, 'L')
+
+            # Save the current X and Y positions
             x_after_prueba = pdf.get_x()
-            
-            # Usar multi_cell para el resultado con alineación superior
-            current_y = pdf.get_y()
-            pdf.multi_cell(40, 7, result['resultado'], 1, 'R')  # 'T' for top alignment
-            
-            # Calcular la altura máxima usada por el multi_cell
-            final_y = pdf.get_y()
-            line_height = final_y - current_y
-            
-            # Volver a la posición después del resultado
-            pdf.set_xy(x_after_prueba + 40, current_y)
-            
-            # Dibujar las celdas restantes con la misma altura
-            pdf.cell(20, line_height, result['Unidad'], 0, 0, 'C')
-            pdf.cell(21, line_height, result['ValorRef'], 0, 1, 'C')
+            y_start = pdf.get_y()
+
+            # Iterate through the wrapped lines and render them as separate cells
+            pdf.set_xy(x_after_prueba, y_start)
+            for line in wrapped_lines:
+                pdf.cell(resultado_width, line_height, line, 0, 2, 'L')  # Move to the next line after each cell
+
+            # Move back to the starting Y position for the next cells
+            pdf.set_xy(x_after_prueba + resultado_width, y_start)
+
+            # Draw the remaining cells with the same row height
+            pdf.cell(20, row_height, result['Unidad'], 0, 0, 'C')
+            pdf.cell(21, row_height, result['ValorRef'], 0, 1, 'C')
 
         # Check if we need a new page for signature
         if pdf.get_y() > 220:  # If less than ~3cm from bottom
