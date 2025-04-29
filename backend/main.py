@@ -175,7 +175,11 @@ async def get_records(cedula: str = None, fechanacimiento: str = None, tipocodig
                 ORDENES.horatomamuestra as horaToma,
                 ORDENES.epsnombre as EPS,
                 resultados.usuariovalida as Bacteriologo,
+                ordenes.medico as Profesional,
                 resultados.resultado as Resultado,
+                CONVERT(varchar, fechavalida, 103) fechavalida,
+                CONVERT(varchar, fechavalida, 108) horavalida,                
+                ordenes.edad,
                 resultados.unidades as Unidad, 
                 concat(RESULTADOS.VALORREFERENCIAMIN, ' - ', RESULTADOS.VALORREFERENCIAMAX ) AS ValorRef,
                 NUMEROIDENTIFICACION as Documento,
@@ -331,12 +335,18 @@ async def generate_pdf(
         # Keep labels bold but make values regular
         pdf.cell(45, 5, f"Paciente: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
-        pdf.cell(0, 5, f"{selected_record['Nombre']}", 0, 1, 'L', True)
+        pdf.cell(80, 5, f"{selected_record['Nombre']}", 0, 0, 'L', True)
         
         pdf.set_font("Arial", "B", 12)
         pdf.cell(45, 5, f"Documento: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
         pdf.cell(0, 5, f"{selected_record['Documento']}", 0, 1, 'L', True)
+        
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"E.P.S: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(80, 5, f"{selected_record['EPS']}", 0, 0, 'L', True)
         
         pdf.set_font("Arial", "B", 12)
         pdf.cell(45, 5, f"Fecha: ", 0, 0, 'L', True)
@@ -344,24 +354,24 @@ async def generate_pdf(
         pdf.cell(0, 5, f"{selected_record['Fecha']}", 0, 1, 'L', True)
         
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(45, 5, f"E.P.S: ", 0, 0, 'L', True)
+        pdf.cell(45, 5, f"Profesional: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
-        pdf.cell(0, 5, f"{selected_record['EPS']}", 0, 1, 'L', True)
+        pdf.cell(80, 5, f"{selected_record['Profesional']}", 0, 0, 'L', True)
         
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(45, 5, f"Bacteriologo: ", 0, 0, 'L', True)
+        pdf.cell(45, 5, f"Edad: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
-        pdf.cell(0, 5, f"{selected_record['Bacteriologo']}", 0, 1, 'L', True)
-        
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(45, 5, f"Hora Ordenamiento: ", 0, 0, 'L', True)
-        pdf.set_font("Arial", "", 8)
-        pdf.cell(0, 5, f"{selected_record['horaOrd']}", 0, 1, 'L', True)
+        pdf.cell(0, 5, f"{selected_record['edad']}", 0, 1, 'L', True)
 
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(45, 5, f"Hora Toma: ", 0, 0, 'L', True)
+        pdf.cell(45, 5, f"Fecha de Validacion: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
-        pdf.cell(0, 5, f"{selected_record['horaToma']}", 0, 1, 'L', True)
+        pdf.cell(80, 5, f"{selected_record['fechavalida']} {selected_record['horavalida']}", 0, 0, 'L', True)
+        
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(45, 5, f"Orden: ", 0, 0, 'L', True)
+        pdf.set_font("Arial", "", 8)
+        pdf.cell(0, 5, f"{selected_record['FACTNUMERO']}", 0, 1, 'L', True)
         
         pdf.ln(5)
         # Resultados
