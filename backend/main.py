@@ -382,8 +382,8 @@ async def generate_pdf(
         pdf.set_font("Arial", "B", 10)
         pdf.set_fill_color(143, 188, 139)  # Light gray background
         pdf.set_text_color(0, 0, 0)
-        pdf.cell(115, 7, "Prueba", 0, 0, 'C', True)
-        pdf.cell(40, 7, "Resultado",0, 0, 'C', True)
+        pdf.cell(100, 7, "Prueba", 0, 0, 'L', True)
+        pdf.cell(55, 7, "Resultado",0, 0, 'L', True)
         pdf.cell(20, 7, "Unidad",0, 0, 'C', True)
         pdf.cell(21, 7, "Valor Ref.",0, 1, 'C', True)
         pdf.set_font("Arial", "", 8)
@@ -479,6 +479,10 @@ async def generate_pdf(
         bacteriologo = selected_record['Bacteriologo']
         # Buscar firma en diferentes formatos de imagen
         signature_found = False
+        
+        # Mover a la posición calculada para la firma
+        # pdf.set_y(signature_y)
+        
         for ext in ['.png', '.jpg', '.jpeg']:
             firma_path = os.path.join(os.path.dirname(__file__), "static", "firmas", f"{bacteriologo}{ext}")
             if os.path.exists(firma_path):
