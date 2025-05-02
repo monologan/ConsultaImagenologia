@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import List
 import os
 from textwrap import wrap
+from datetime import datetime
 
 app = FastAPI()
 # Configurar CORS
@@ -322,6 +323,13 @@ async def generate_pdf(
         pdf.cell(0, 5, "Nit: 82200831-5", ln=True, align="R")
         pdf.cell(0, 5, "CALLE 20 # 14-45  Tel:6022317323 - 3167717018", ln=True, align="R")
         pdf.cell(0, 5, "TULUA VALLE DEL CAUCA", ln=True, align="R")
+        pdf.ln(5)
+        # Agregar fecha y hora de impresión
+        fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+        pdf.set_font("Arial", "B", 8)
+        pdf.set_text_color(50, 48, 129)
+        pdf.cell(0, 5, f"Fecha de Impresión: {fecha_actual}", ln=True, align="L")
+        
         pdf.ln(2)
         # Información del paciente
         pdf.set_font("Arial", "B", 12)
@@ -344,12 +352,12 @@ async def generate_pdf(
         
         
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(45, 5, f"E.P.S: ", 0, 0, 'L', True)
+        pdf.cell(45, 5, f"EAPBS: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
         pdf.cell(80, 5, f"{selected_record['EPS']}", 0, 0, 'L', True)
         
         pdf.set_font("Arial", "B", 12)
-        pdf.cell(45, 5, f"Fecha: ", 0, 0, 'L', True)
+        pdf.cell(45, 5, f"Fecha de Ingreso: ", 0, 0, 'L', True)
         pdf.set_font("Arial", "", 8)
         pdf.cell(0, 5, f"{selected_record['Fecha']}", 0, 1, 'L', True)
         
